@@ -1,0 +1,13 @@
+{
+  "name": "俊逸采购商机系统",
+  "short_name": "俊逸商机",
+  "description": "江西家具采购商机筛选、评估与跟进系统",
+  "start_url": "/",
+  "scope": "/",
+  "display": "standalone",
+  "background_color": "#f3f4ef",
+  "theme_color": "#17251d",
+  "icons": [
+    {"src":"/favicon.svg","sizes":"any","type":"image/svg+xml","purpose":"any maskable"}
+  ]
+}

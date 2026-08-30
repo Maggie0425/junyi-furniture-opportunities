@@ -1,0 +1,2 @@
+请把以 SCT 开头的 Server酱Turbo SendKey 粘贴到同目录 serverchan-sendkey.txt。
+SendKey 是推送凭证，请勿提交到 Git 或转发给无关人员。

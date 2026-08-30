@@ -1,0 +1,2 @@
+请把企业微信群机器人的完整 Webhook 地址粘贴到同目录的 wechat-webhook.txt 中。
+不要把真实地址提交到 Git 或发送给无关人员。
