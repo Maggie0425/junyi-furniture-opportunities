@@ -13,6 +13,8 @@ dist-ssr
 *.local
 config/wechat-webhook.txt
 config/serverchan-sendkey.txt
+config/supabase-service-role-key.txt
+config/supabase-project-url.txt
 
 # Editor directories and files
 .vscode/*
