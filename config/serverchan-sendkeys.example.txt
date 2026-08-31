@@ -1,0 +1,2 @@
+每行填写一个以 SCT 开头的 Server酱Turbo SendKey。
+第二个微信账号需要用该微信登录 https://sct.ftqq.com 后复制它自己的 SendKey。
