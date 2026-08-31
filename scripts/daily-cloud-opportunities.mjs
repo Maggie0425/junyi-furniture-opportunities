@@ -6,6 +6,8 @@ const root = resolve(import.meta.dirname, '..')
 const dataPath = resolve(root, 'src', 'data', 'daily-opportunities.json')
 const report = JSON.parse(await readFile(dataPath, 'utf8'))
 if (!Array.isArray(report.items)) throw new Error('商机数据格式错误')
+const invalidTestIds = new Set(['FREE-0ed7fd846aa64b6368a7b936', 'FREE-a649fe2e7536a246ff9e6f46', 'FREE-fa53603b9776abb66a5ea788', 'FREE-e6c02708ea6e383e6b38dbd1', 'FREE-d617b15b7c4f9c1c7b125e05', 'FREE-98a3ba9bf7e3e0f23bbb704e', 'FREE-67b905b8cb796a8c73835c79', 'FREE-20becaf855d1bcbd0f1146f5'])
+report.items = report.items.filter(item => !invalidTestIds.has(item.id))
 
 const keywords = ['家具', '办公桌', '办公椅', '桌椅', '床', '柜', '密集架', '书架', '窗帘', '软装', '宿舍', '养老', '康养', '适老', '民宿', '酒店用品']
 const direct = ['家具', '办公桌', '办公椅', '桌椅', '床', '柜', '密集架', '书架', '窗帘', '软装']
@@ -75,6 +77,9 @@ for (const source of sources) {
     for (const row of rows) {
       let detail = ''
       try { detail = clean((await fetchText(row.url)).slice(0, 300000)) } catch {}
+      const fullText = `${row.title} ${row.context} ${detail}`
+      if (!/江西|吉安|吉州|井冈山|南昌|赣州|九江|上饶|宜春|抚州|萍乡|新余|鹰潭|景德镇/.test(fullText)) continue
+      if (/流标|废标|终止|中止|更正公告|结果公告|中标公告|成交公告/.test(row.title)) continue
       const item = makeItem(row, source, detail)
       if (item.score >= 60) found.push(item)
     }

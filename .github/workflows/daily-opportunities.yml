@@ -37,6 +37,8 @@ jobs:
         run: node scripts/daily-cloud-opportunities.mjs
       - name: 同步到 CloudBase App
         run: node scripts/sync-cloudbase.mjs
+      - name: 清理首次测试误数据
+        run: node scripts/cleanup-cloudbase-test-items.mjs
       - name: 推送到两个微信账户
         run: node scripts/send-serverchan.mjs
       - name: 保存更新后的商机库
