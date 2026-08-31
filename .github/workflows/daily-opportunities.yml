@@ -34,8 +34,6 @@ jobs:
         run: |
           node -e "const fs=require('fs');fs.mkdirSync('config',{recursive:true});fs.writeFileSync('config/cloudbase-env-id.txt','junyi-opportunities-d9bmd85ea139\n');fs.writeFileSync('config/cloudbase-region.txt','ap-shanghai\n');fs.writeFileSync('config/cloudbase-service-api-key.txt',process.env.CLOUDBASE_SERVICE_API_KEY+'\n');fs.writeFileSync('config/serverchan-sendkeys.txt',process.env.SERVERCHAN_SENDKEYS+'\n')"
       - name: 搜索并整理最新商机
-        env:
-          OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
         run: node scripts/daily-cloud-opportunities.mjs
       - name: 同步到 CloudBase App
         run: node scripts/sync-cloudbase.mjs

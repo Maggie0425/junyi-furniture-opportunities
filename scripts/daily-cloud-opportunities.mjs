@@ -1,63 +1,94 @@
 import { readFile, writeFile } from 'node:fs/promises'
 import { resolve } from 'node:path'
+import { createHash } from 'node:crypto'
 
 const root = resolve(import.meta.dirname, '..')
 const dataPath = resolve(root, 'src', 'data', 'daily-opportunities.json')
-const apiKey = process.env.OPENAI_API_KEY
-if (!apiKey) throw new Error('OPENAI_API_KEY 未配置')
-
 const report = JSON.parse(await readFile(dataPath, 'utf8'))
 if (!Array.isArray(report.items)) throw new Error('商机数据格式错误')
 
-const itemProperties = {
-  id: { type: 'string' }, name: { type: 'string' }, region: { type: 'string' }, buyer: { type: 'string' },
-  budget: { type: 'string' }, publishedAt: { type: 'string' }, fileDeadline: { type: 'string' }, bidDeadline: { type: 'string' },
-  method: { type: 'string' }, category: { type: 'string' }, qualification: { type: 'string' }, jointBid: { type: 'string' },
-  score: { type: 'number' }, grade: { type: 'string', enum: ['A', 'B'] }, difficulty: { type: 'string' },
-  strength: { type: 'string' }, gap: { type: 'string' }, action: { type: 'string' }, source: { type: 'string' },
-  sourceUrl: { type: 'string' }, verifiedAt: { type: 'string' },
+const keywords = ['家具', '办公桌', '办公椅', '桌椅', '床', '柜', '密集架', '书架', '窗帘', '软装', '宿舍', '养老', '康养', '适老', '民宿', '酒店用品']
+const direct = ['家具', '办公桌', '办公椅', '桌椅', '床', '柜', '密集架', '书架', '窗帘', '软装']
+const sources = [
+  { name: '中国政府采购网', url: 'https://search.ccgp.gov.cn/bxsearch?searchtype=1&page_index=1&bidSort=0&buyerName=&projectId=&pinMu=0&bidType=0&dbselect=bidx&kw=%E5%AE%B6%E5%85%B7', hosts: ['ccgp.gov.cn'] },
+  { name: '江西省公共资源交易平台', url: 'https://ggzy.jiangxi.gov.cn/jyxx/002006/002006001/tradeInfo.html', hosts: ['ggzy.jiangxi.gov.cn'] },
+  { name: '吉安市企业采购交易服务平台', url: 'https://jagqcg.etrading.cn/jyxx/001004/001004001/', hosts: ['jagqcg.etrading.cn'] },
+  { name: '全国公共资源交易平台', url: 'https://www.ggzy.gov.cn/information/html/a/360000/0101/', hosts: ['ggzy.gov.cn'] },
+]
+
+const clean = value => String(value || '').replace(/<script[\s\S]*?<\/script>/gi, ' ').replace(/<style[\s\S]*?<\/style>/gi, ' ').replace(/<[^>]+>/g, ' ').replace(/&nbsp;|&#160;/g, ' ').replace(/&amp;/g, '&').replace(/&quot;/g, '"').replace(/&#39;/g, "'").replace(/\s+/g, ' ').trim()
+const abs = (href, base) => { try { return new URL(href, base).href.split('#')[0] } catch { return '' } }
+const sha = value => createHash('sha256').update(value).digest('hex').slice(0, 24)
+const todayCN = new Intl.DateTimeFormat('sv-SE', { timeZone: 'Asia/Shanghai' }).format(new Date())
+const verifiedAt = new Date().toISOString()
+
+async function fetchText(url) {
+  const controller = new AbortController()
+  const timer = setTimeout(() => controller.abort(), 18000)
+  try {
+    const res = await fetch(url, { redirect: 'follow', signal: controller.signal, headers: { 'user-agent': 'Mozilla/5.0 JunyiOpportunityBot/1.0', accept: 'text/html,application/xhtml+xml' } })
+    if (!res.ok) throw new Error(`HTTP ${res.status}`)
+    return await res.text()
+  } finally { clearTimeout(timer) }
 }
-const schema = {
-  type: 'object', additionalProperties: false,
-  properties: { items: { type: 'array', items: { type: 'object', additionalProperties: false, properties: itemProperties, required: Object.keys(itemProperties) } } },
-  required: ['items'],
+
+function linksFrom(html, source) {
+  const rows = []
+  const re = /<a\b[^>]*href=["']([^"']+)["'][^>]*>([\s\S]*?)<\/a>/gi
+  for (const match of html.matchAll(re)) {
+    const title = clean(match[2] || match[0])
+    const url = abs(match[1], source.url)
+    if (title.length < 5 || !keywords.some(k => title.includes(k))) continue
+    if (!source.hosts.some(host => { try { return new URL(url).hostname.endsWith(host) } catch { return false } })) continue
+    const pos = match.index || 0
+    rows.push({ title, url, context: clean(html.slice(Math.max(0, pos - 300), pos + match[0].length + 500)) })
+  }
+  return rows
 }
 
-const today = new Intl.DateTimeFormat('zh-CN', { timeZone: 'Asia/Shanghai', dateStyle: 'full', timeStyle: 'long' }).format(new Date())
-const existing = report.items.map(({ id, name, sourceUrl, bidDeadline }) => ({ id, name, sourceUrl, bidDeadline }))
-const prompt = `当前北京时间：${today}。
-你是江西家具采购商机核验员。使用网页搜索，寻找今天最新发布或仍可参与的江西省采购意向、招标公告、询价、竞争性磋商、电子卖场、框架协议和军队采购信息。吉安市及各县区优先，其次江西其他地区；不要推荐江西省外项目。
+function makeItem(row, source, detail = '') {
+  const text = `${row.context} ${detail}`
+  const date = text.match(/20\d{2}[-年\/.]\d{1,2}[-月\/.]\d{1,2}/)?.[0]?.replace(/[年\/.]/g, '-').replace('月', '-') || todayCN
+  const money = text.match(/(?:预算(?:金额)?|最高限价|采购预算)[：:\s]*([0-9,.]+\s*(?:万元|元))/)?.[1] || '官方列表未公示，需打开原公告或下载采购文件核对'
+  const isDirect = direct.some(k => row.title.includes(k))
+  const ji = /吉安|吉州|吉水|吉县|泰和|万安|遂川|永新|井冈山|安福|峡江|新干/.test(text)
+  const score = isDirect ? (ji ? 90 : 84) : (ji ? 74 : 66)
+  const method = /竞争性磋商/.test(text) ? '竞争性磋商' : /询价/.test(text) ? '询价' : /采购意向/.test(text) ? '采购意向' : /公开招标/.test(text) ? '公开招标' : '以官方公告为准'
+  return {
+    id: `FREE-${sha(row.url)}`, name: row.title, region: ji ? '江西·吉安市（具体县区见原公告）' : '江西省（具体地区见原公告）', buyer: '以官方原始公告为准', budget: money,
+    publishedAt: date, fileDeadline: '采购文件未公开或列表未展示，需打开原公告核对', bidDeadline: '采购文件未公开或列表未展示，需打开原公告核对', method,
+    category: `免费规则采集发现与俊逸产品范围相关的${isDirect ? '家具类' : '家具配套类'}项目；具体数量、材质、安装及售后要求须以官方采购文件为准`,
+    qualification: '需满足政府采购基础资格；特定资质、业绩、人员、保证金、交付期、CA下载和电子签章要求请打开官方原公告并下载采购文件核对，程序不对未公开内容作推测',
+    jointBid: '以采购文件为准', score, grade: score >= 80 ? 'A' : 'B', difficulty: score >= 80 ? '★★★' : '★★★★',
+    strength: `${ji ? '吉安本地服务响应快；' : ''}现有产品范围与公告标题匹配，金额在1000万至2000万元以内均可评估承接`,
+    gap: '预算、详细清单、资格条件和截止时间需由负责人打开采购文件复核', action: '立即打开官方原链接，确认公告仍有效，并记录获取文件截止与投标截止；下载清单后当天完成供货能力判断',
+    source: source.name, sourceUrl: row.url, verifiedAt,
+  }
+}
 
-必须优先查找并核验官方原始页面：中国政府采购网、全国公共资源交易平台、江西省公共资源交易平台、中国招标投标公共服务平台、军队采购网、江西省政府采购网、江西政府采购电子卖场、吉安市及各县区公共资源交易官方信息。再检查江西高校、职业院校、中小学、医院、卫健、民政、养老机构、福利院、残联、机关事务管理局，以及与江西有关的央企、国企、城投、旅投、文旅集团官方采购平台。不得把第三方转载页作为sourceUrl；无法核验官方原文的项目不要输出。
-
-重点产品：办公家具、医养及适老家具、养老设施、学校和宿舍家具、酒店民宿家具、床、钢制家具、校用家具、图书馆家具、密集架、窗帘、软装；也可保留家具加家电、教学设备、厨房设备等可通过供应链补齐的组合项目。
-
-按吉安市吉州区俊逸办公家具有限公司能力评分：单项目承接边界1000万至2000万元；80至100分为A级，60至79分为B级，低于60分不要输出。所有日期必须区分获取文件截止与投标/响应截止。预算、资格、保证金、联合体、CA电子签章或截止时间不明确时必须写“采购文件未公开，需下载核对”，不得猜测。sourceUrl必须是可直接打开的官方原始公告链接。只输出仍可报名或值得提前跟进的采购意向，最多10条。
-
-现有项目用于去重（相同id或sourceUrl不要重复创建）：${JSON.stringify(existing)}`
-
-const response = await fetch('https://api.openai.com/v1/responses', {
-  method: 'POST',
-  headers: { Authorization: `Bearer ${apiKey}`, 'Content-Type': 'application/json' },
-  body: JSON.stringify({
-    model: 'gpt-5.4',
-    tools: [{ type: 'web_search_preview' }],
-    input: prompt,
-    text: { format: { type: 'json_schema', name: 'daily_opportunities', strict: true, schema } },
-    store: false,
-  }),
-})
-const payload = await response.json()
-if (!response.ok) throw new Error(`OpenAI 检索失败：${response.status} ${payload?.error?.message || '未知错误'}`)
-const outputText = payload.output_text || payload.output?.flatMap(item => item.content || []).find(x => x.type === 'output_text')?.text
-if (!outputText) throw new Error('OpenAI 未返回结构化商机数据')
-const found = JSON.parse(outputText).items
+const found = []
+const sourceStatus = []
+for (const source of sources) {
+  try {
+    const html = await fetchText(source.url)
+    const rows = linksFrom(html, source).slice(0, 8)
+    for (const row of rows) {
+      let detail = ''
+      try { detail = clean((await fetchText(row.url)).slice(0, 300000)) } catch {}
+      const item = makeItem(row, source, detail)
+      if (item.score >= 60) found.push(item)
+    }
+    sourceStatus.push(`${source.name}:${rows.length}条候选`)
+  } catch (error) {
+    sourceStatus.push(`${source.name}:需人工核查(${error.message})`)
+  }
+}
 
 const merged = new Map(report.items.map(item => [item.id, item]))
 for (const item of found) {
   const duplicate = [...merged.values()].find(old => old.sourceUrl === item.sourceUrl)
   merged.set(duplicate?.id || item.id, { ...(duplicate || {}), ...item, id: duplicate?.id || item.id })
 }
-const updatedAt = new Date().toISOString()
-await writeFile(dataPath, `${JSON.stringify({ updatedAt, items: [...merged.values()] }, null, 2)}\n`, 'utf8')
-console.log(`云端检索完成：发现 ${found.length} 条，商机库共 ${merged.size} 条`)
+await writeFile(dataPath, `${JSON.stringify({ updatedAt: verifiedAt, items: [...merged.values()] }, null, 2)}\n`, 'utf8')
+console.log(`免费规则采集完成：新增或更新 ${found.length} 条，商机库共 ${merged.size} 条`)
+console.log(`来源状态：${sourceStatus.join('；')}`)
