@@ -16,6 +16,11 @@ config/serverchan-sendkey.txt
 config/serverchan-sendkeys.txt
 config/supabase-service-role-key.txt
 config/supabase-project-url.txt
+config/cloudbase-publishable-key.txt
+config/cloudbase-env-id.txt
+config/cloudbase-region.txt
+config/cloudbase-service-api-key.txt
+.env.local
 
 # Editor directories and files
 .vscode/*
