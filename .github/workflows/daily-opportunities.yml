@@ -1,0 +1,48 @@
+name: 俊逸家具商机每日云端推送
+
+on:
+  schedule:
+    - cron: '30 6 * * *'
+      timezone: 'Asia/Shanghai'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: daily-opportunities
+  cancel-in-progress: false
+
+jobs:
+  scan-sync-notify:
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: 'pnpm'
+      - run: corepack enable
+      - run: pnpm install --frozen-lockfile
+      - name: 准备加密配置
+        env:
+          CLOUDBASE_SERVICE_API_KEY: ${{ secrets.CLOUDBASE_SERVICE_API_KEY }}
+          SERVERCHAN_SENDKEYS: ${{ secrets.SERVERCHAN_SENDKEYS }}
+        run: |
+          node -e "const fs=require('fs');fs.mkdirSync('config',{recursive:true});fs.writeFileSync('config/cloudbase-env-id.txt','junyi-opportunities-d9bmd85ea139\n');fs.writeFileSync('config/cloudbase-region.txt','ap-shanghai\n');fs.writeFileSync('config/cloudbase-service-api-key.txt',process.env.CLOUDBASE_SERVICE_API_KEY+'\n');fs.writeFileSync('config/serverchan-sendkeys.txt',process.env.SERVERCHAN_SENDKEYS+'\n')"
+      - name: 搜索并整理最新商机
+        env:
+          OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
+        run: node scripts/daily-cloud-opportunities.mjs
+      - name: 同步到 CloudBase App
+        run: node scripts/sync-cloudbase.mjs
+      - name: 推送到两个微信账户
+        run: node scripts/send-serverchan.mjs
+      - name: 保存更新后的商机库
+        run: |
+          git config user.name "junyi-opportunity-bot"
+          git config user.email "actions@users.noreply.github.com"
+          git add src/data/daily-opportunities.json
+          git diff --cached --quiet || git commit -m "Update daily opportunities"
+          git push
